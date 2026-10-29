@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Record grade · School Portal{% endblock %}
+{% block content %}
+<h1>Record grade: {{ subject.name }}</h1>
+{% if session %}
+    <p>Academic session: <strong>{{ session.session }}</strong></p>
+    <p>Saving a grade replaces any existing scores for this student, subject and session.</p>
+{% else %}
+    <p class="notice">No current academic session. Ask an administrator to activate one before recording grades.</p>
+{% endif %}
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" {% if not session %}disabled{% endif %}>Save grade</button>
+</form>
+<p><a href="{% url 'teacher_dashboard' %}">Back to teacher dashboard</a></p>
+{% endblock %}

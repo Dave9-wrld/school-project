@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}Teacher dashboard · School Portal{% endblock %}
+{% block content %}
+<h1>Teacher workspace</h1>
+<p><strong>Teacher:</strong> {{ user.get_full_name|default:user.username }}</p>
+<h2>Assigned subjects</h2>
+<div class="table-wrap"><table>
+    <thead><tr><th>Subject</th><th>Code</th><th>Grades</th></tr></thead>
+    <tbody>
+    {% for subject in taught_subjects %}
+        <tr><td>{{ subject.name }}</td><td>{{ subject.code }}</td><td><a href="{% url 'record_grade' subject.id %}">Record grade</a></td></tr>
+    {% empty %}
+        <tr><td colspan="3">No subjects assigned yet.</td></tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+<h2>Assigned classes</h2>
+<ul>{% for classroom in assigned_classes %}<li>{{ classroom.name }}</li>{% empty %}<li>No classes assigned yet.</li>{% endfor %}</ul>
+{% endblock %}

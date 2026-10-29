@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}School Portal{% endblock %}</title>
+    <style>
+        body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6f9; color: #18263b; }
+        header { background: #18263b; color: white; padding: 1rem 5%; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+        header a { color: white; } nav { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; }
+        main { max-width: 960px; margin: 2rem auto; padding: 1.5rem; background: white; border-radius: 8px; }
+        a { color: #174ba0; } input, select, button { font: inherit; padding: .6rem; max-width: 100%; box-sizing: border-box; }
+        label { display: block; margin-bottom: .3rem; } button { cursor: pointer; } button:disabled { cursor: not-allowed; }
+        .errorlist { color: #a21b22; } .notice { padding: 1rem; background: #e8f2ff; } .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; } th, td { padding: .8rem; border-bottom: 1px solid #dce1e8; text-align: left; }
+        .stats { display: flex; flex-wrap: wrap; gap: 2rem; } .stats strong { display: block; font-size: 2rem; }
+        @media (max-width: 600px) { main { margin: 1rem; padding: 1rem; } }
+    </style>
+</head>
+<body>
+<header>
+    <strong>Campus Portal</strong>
+    <nav aria-label="Main navigation">
+        <a href="{% url 'api_root' %}">API index</a>
+        {% if user.is_authenticated %}
+            <a href="{% url 'role_redirect' %}">Dashboard</a>
+            {% if user.is_staff %}<a href="{% url 'admin:index' %}">Django admin</a>{% endif %}
+            <span>{{ user.username }} · {{ user.role }}</span>
+            <form action="{% url 'logout' %}" method="post">
+                {% csrf_token %}<button type="submit">Log out</button>
+            </form>
+        {% else %}
+            <a href="{% url 'login' %}">Log in</a>
+        {% endif %}
+    </nav>
+</header>
+<main>
+    {% for message in messages %}<p class="notice" role="status">{{ message }}</p>{% endfor %}
+    {% block content %}{% endblock %}
+</main>
+</body>
+</html>

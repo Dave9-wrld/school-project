@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Admin dashboard · School Portal{% endblock %}
+{% block content %}
+<h1>School overview</h1>
+<div class="stats">
+    <p><strong>{{ total_students }}</strong>Students</p>
+    <p><strong>{{ total_teachers }}</strong>Teachers</p>
+    <p><strong>{{ total_subjects }}</strong>Subjects</p>
+    <p><strong>{{ total_classes }}</strong>Classes</p>
+</div>
+{% if user.is_staff %}<p><a href="{% url 'admin:index' %}">Manage school records in Django admin</a></p>{% endif %}
+{% endblock %}
