@@ -3,15 +3,30 @@
 import os
 from pathlib import Path
 import dj_database_url
-import os 
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ.get(
-    "DJANGO_SECRET_KEY", "django-insecure-school-local-development-only"
+    "SECRET_KEY",
+    os.environ.get("DJANGO_SECRET_KEY", "django-insecure-school-local-development-only"),
 )
 DEBUG = False
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
+ALLOWED_HOSTS = [host for host in [
+    "localhost", "127.0.0.1", "[::1]", os.environ.get("RENDER_EXTERNAL_HOSTNAME"),
+] if host]
+CSRF_TRUSTED_ORIGINS = [
+    f"https://{host}" for host in [os.environ.get("RENDER_EXTERNAL_HOSTNAME")] if host
+]
+ON_RENDER = bool(os.environ.get("RENDER_EXTERNAL_HOSTNAME"))
+if ON_RENDER:
+    # Render terminates HTTPS before forwarding requests to Gunicorn.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 3600
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -56,13 +71,6 @@ TEMPLATES = [
 ]
 WSGI_APPLICATION = "school.wsgi.application"
 ASGI_APPLICATION = "school.asgi.application"
-
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
-}
 
 DATABASES = {
     'default': dj_database_url.config(
