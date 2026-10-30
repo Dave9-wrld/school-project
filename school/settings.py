@@ -3,7 +3,6 @@
 import os
 from pathlib import Path
 import dj_database_url
-import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -11,14 +10,16 @@ SECRET_KEY = os.environ.get(
     "SECRET_KEY",
     os.environ.get("DJANGO_SECRET_KEY", "django-insecure-school-local-development-only"),
 )
-DEBUG = False
+ON_RENDER = bool(os.environ.get("RENDER_EXTERNAL_HOSTNAME"))
+DEBUG = os.environ.get("DJANGO_DEBUG", str(not ON_RENDER)).lower() in ("true", "1", "yes")
+
+_extra_hosts = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()]
 ALLOWED_HOSTS = [host for host in [
-    "localhost", "127.0.0.1", "[::1]", os.environ.get("RENDER_EXTERNAL_HOSTNAME"),
+    "localhost", "127.0.0.1", "[::1]", os.environ.get("RENDER_EXTERNAL_HOSTNAME"), *_extra_hosts
 ] if host]
 CSRF_TRUSTED_ORIGINS = [
     f"https://{host}" for host in [os.environ.get("RENDER_EXTERNAL_HOSTNAME")] if host
 ]
-ON_RENDER = bool(os.environ.get("RENDER_EXTERNAL_HOSTNAME"))
 if ON_RENDER:
     # Render terminates HTTPS before forwarding requests to Gunicorn.
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
