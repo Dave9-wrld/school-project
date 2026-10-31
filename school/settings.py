@@ -119,7 +119,7 @@ API_TOKEN_TTL_SECONDS = 24 * 60 * 60
 
 # CORS Whitelist Settings
 CORS_ALLOWED_ORIGINS = [
-    "https://school-frontend-henna-nine.vercel.app/",
+    "https://school-frontend-henna-nine.vercel.app",
 ]
 
 # Console mail is local-only. Configure SMTP to deliver to real inboxes.
