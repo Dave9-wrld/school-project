@@ -21,6 +21,10 @@ def create_or_update_user_profile(sender, instance, using, raw=False, update_fie
         TeacherProfile.objects.using(using).get_or_create(user=instance)
     elif instance.role == User.Role.STUDENT:
         StudentProfile.objects.using(using).get_or_create(user=instance)
+    elif instance.role == User.Role.ADMIN:
+        if not instance.is_staff:
+            sender.objects.using(using).filter(pk=instance.pk).update(is_staff=True)
+
     if getattr(instance, '_password_changed', False) and (update_fields is None or 'password' in update_fields):
         Token.objects.using(using).filter(user=instance).delete()
 

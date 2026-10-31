@@ -13,7 +13,7 @@ class AccountCreateSerializer(serializers.ModelSerializer):
         validators=[UniqueValidator(queryset=StudentProfile.objects.all(), message='This admission number is already assigned.')])
     employee_id = serializers.CharField(write_only=True, required=False, allow_blank=True, max_length=20,
         validators=[UniqueValidator(queryset=TeacherProfile.objects.all(), message='This employee ID is already assigned.')])
-    role = serializers.ChoiceField(choices=[User.Role.STUDENT, User.Role.TEACHER], default=User.Role.STUDENT)
+    role = serializers.ChoiceField(choices=User.Role.choices, default=User.Role.STUDENT)
 
     class Meta:
         model = User
@@ -50,6 +50,9 @@ class AccountCreateSerializer(serializers.ModelSerializer):
                     profile.employee_id = employee_id
                     profile.save(update_fields=['employee_id'])
                     user.teacher_profile = profile
+                elif role == User.Role.ADMIN:
+                    user.is_staff = True
+                    user.save(update_fields=['is_staff'])
                 return user
         except IntegrityError as exc:
             # Uniqueness can change between validation and insertion.
