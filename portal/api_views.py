@@ -1,5 +1,5 @@
 from django.contrib.auth import logout
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -14,7 +14,7 @@ from rest_framework.reverse import reverse
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.models import StudentProfile, User
+from accounts.models import StudentProfile, TeacherProfile, User
 from academics.models import AcademicSession, ClassRoom, Grade, Subject
 from .permissions import IsAdminUserRole, IsStudentUserRole, IsTeacherUserRole
 from .serializers import (
@@ -33,7 +33,7 @@ class APIRootView(APIView):
     to the login endpoint, then send Authorization: Token <token>.
 
     The record-grade link uses subject 1 as an example; replace 1 with your
-    subject ID. POST student (a StudentProfile ID), continous_assessment_score,
+    subject ID. POST student (a StudentProfile ID), continuous_assessment_score,
     and exam_score. A current academic session and an assigned teacher are required.
     """
 
@@ -154,11 +154,36 @@ class AdminStatsAPIView(APIView):
 def student_class_data(profile):
     return {
         'id': profile.pk,
+        'user_id': profile.user.pk,
         'name': profile.user.get_full_name() or profile.user.username,
+        'first_name': profile.user.first_name,
+        'last_name': profile.user.last_name,
         'username': profile.user.username,
+        'email': profile.user.email,
+        'phone_number': profile.user.phone_number or '',
         'admission_number': profile.admission_number or '',
+        'date_of_birth': profile.date_of_birth.isoformat() if profile.date_of_birth else '',
         'current_class': profile.current_class_id,
         'current_class_name': profile.current_class.name if profile.current_class else None,
+        'is_active': profile.user.is_active,
+    }
+
+
+def teacher_data(teacher):
+    profile = getattr(teacher, 'teacher_profile', None)
+    return {
+        'id': teacher.pk,
+        'name': teacher.get_full_name() or teacher.username,
+        'first_name': teacher.first_name,
+        'last_name': teacher.last_name,
+        'username': teacher.username,
+        'email': teacher.email,
+        'phone_number': teacher.phone_number or '',
+        'employee_id': getattr(profile, 'employee_id', None) or '',
+        'department': getattr(profile, 'department', None) or '',
+        'is_active': teacher.is_active,
+        'assigned_classes': list(teacher.assigned_classes.values_list('name', flat=True)),
+        'assigned_subjects': list(teacher.subjects_taught.values_list('name', flat=True)),
     }
 
 
@@ -190,15 +215,68 @@ class AdminClassDetailAPIView(APIView):
         classroom.student_count = classroom.students.count()
         return Response(AdminClassSerializer(classroom).data)
 
+    def delete(self, request, class_id):
+        classroom = get_object_or_404(ClassRoom, pk=class_id)
+        classroom.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class AdminStudentsAPIView(APIView):
     permission_classes = [IsAdminUserRole]
 
     def get(self, request):
         students = StudentProfile.objects.filter(
-            user__role=User.Role.STUDENT, user__is_active=True,
+            user__role=User.Role.STUDENT,
         ).select_related('user', 'current_class').order_by('user__first_name', 'user__last_name', 'user__username')
         return Response([student_class_data(student) for student in students])
+
+
+class AdminStudentDetailAPIView(APIView):
+    permission_classes = [IsAdminUserRole]
+
+    def patch(self, request, student_id):
+        student = get_object_or_404(
+            StudentProfile.objects.select_related('user', 'current_class'),
+            pk=student_id, user__role=User.Role.STUDENT,
+        )
+        data = request.data
+        user = student.user
+        if 'first_name' in data:
+            user.first_name = data['first_name']
+        if 'last_name' in data:
+            user.last_name = data['last_name']
+        if 'email' in data:
+            user.email = data['email']
+        if 'phone_number' in data:
+            user.phone_number = data['phone_number']
+        if 'is_active' in data:
+            user.is_active = bool(data['is_active'])
+        user.save()
+
+        if 'admission_number' in data:
+            adm_no = str(data['admission_number']).strip() or None
+            if adm_no and StudentProfile.objects.exclude(pk=student.pk).filter(admission_number=adm_no).exists():
+                return Response({'admission_number': 'This admission number is already assigned.'}, status=status.HTTP_400_BAD_REQUEST)
+            student.admission_number = adm_no
+        if 'current_class' in data:
+            class_id = data['current_class']
+            if class_id:
+                classroom = get_object_or_404(ClassRoom, pk=class_id)
+                student.current_class = classroom
+            else:
+                student.current_class = None
+        if 'date_of_birth' in data:
+            dob = data['date_of_birth'] or None
+            student.date_of_birth = dob
+        student.save()
+        student.refresh_from_db()
+        return Response(student_class_data(student))
+
+    def delete(self, request, student_id):
+        student = get_object_or_404(StudentProfile, pk=student_id)
+        user = student.user
+        user.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class AdminStudentClassAPIView(APIView):
@@ -207,7 +285,7 @@ class AdminStudentClassAPIView(APIView):
     def patch(self, request, student_id):
         student = get_object_or_404(
             StudentProfile.objects.select_related('user', 'current_class'),
-            pk=student_id, user__role=User.Role.STUDENT, user__is_active=True,
+            pk=student_id, user__role=User.Role.STUDENT,
         )
         serializer = StudentClassAssignmentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -220,12 +298,247 @@ class AdminTeachersAPIView(APIView):
     permission_classes = [IsAdminUserRole]
 
     def get(self, request):
-        teachers = User.objects.filter(role=User.Role.TEACHER, is_active=True).select_related('teacher_profile').order_by('first_name', 'last_name', 'username')
+        teachers = User.objects.filter(role=User.Role.TEACHER).select_related('teacher_profile').prefetch_related('assigned_classes', 'subjects_taught').order_by('first_name', 'last_name', 'username')
+        return Response([teacher_data(teacher) for teacher in teachers])
+
+
+class AdminTeacherDetailAPIView(APIView):
+    permission_classes = [IsAdminUserRole]
+
+    def patch(self, request, teacher_id):
+        teacher = get_object_or_404(User.objects.select_related('teacher_profile'), pk=teacher_id, role=User.Role.TEACHER)
+        data = request.data
+        if 'first_name' in data:
+            teacher.first_name = data['first_name']
+        if 'last_name' in data:
+            teacher.last_name = data['last_name']
+        if 'email' in data:
+            teacher.email = data['email']
+        if 'phone_number' in data:
+            teacher.phone_number = data['phone_number']
+        if 'is_active' in data:
+            teacher.is_active = bool(data['is_active'])
+        teacher.save()
+        profile, _ = TeacherProfile.objects.get_or_create(user=teacher)
+        if 'employee_id' in data:
+            emp_id = str(data['employee_id']).strip() or None
+            if emp_id and TeacherProfile.objects.exclude(pk=profile.pk).filter(employee_id=emp_id).exists():
+                return Response({'employee_id': 'This employee ID is already assigned.'}, status=status.HTTP_400_BAD_REQUEST)
+            profile.employee_id = emp_id
+        if 'department' in data:
+            profile.department = str(data['department']).strip() or None
+        profile.save()
+        teacher = User.objects.select_related('teacher_profile').get(pk=teacher.pk)
+        return Response(teacher_data(teacher))
+
+    def delete(self, request, teacher_id):
+        teacher = get_object_or_404(User, pk=teacher_id, role=User.Role.TEACHER)
+        teacher.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminSubjectsAPIView(APIView):
+    permission_classes = [IsAdminUserRole]
+
+    def get(self, request):
+        subjects = Subject.objects.select_related('teacher').annotate(
+            grades_count=Count('grades'),
+        ).order_by('code')
+        result = []
+        for s in subjects:
+            result.append({
+                'id': s.pk,
+                'name': s.name,
+                'code': s.code,
+                'teacher': s.teacher_id,
+                'teacher_name': (s.teacher.get_full_name() or s.teacher.username) if s.teacher else None,
+                'grades_count': s.grades_count,
+            })
+        return Response(result)
+
+    def post(self, request):
+        name = request.data.get('name', '').strip()
+        code = request.data.get('code', '').strip().upper()
+        teacher_id = request.data.get('teacher')
+        if not name or not code:
+            return Response({'error': 'Subject name and code are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if Subject.objects.filter(name__iexact=name).exists():
+            return Response({'name': 'A course with this name already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        if Subject.objects.filter(code__iexact=code).exists():
+            return Response({'code': 'A course with this code already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        teacher = None
+        if teacher_id:
+            teacher = get_object_or_404(User, pk=teacher_id, role=User.Role.TEACHER)
+        subject = Subject.objects.create(name=name, code=code, teacher=teacher)
+        return Response({
+            'id': subject.pk,
+            'name': subject.name,
+            'code': subject.code,
+            'teacher': subject.teacher_id,
+            'teacher_name': (teacher.get_full_name() or teacher.username) if teacher else None,
+            'grades_count': 0,
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminSubjectDetailAPIView(APIView):
+    permission_classes = [IsAdminUserRole]
+
+    def patch(self, request, subject_id):
+        subject = get_object_or_404(Subject.objects.select_related('teacher'), pk=subject_id)
+        name = request.data.get('name', '').strip()
+        code = request.data.get('code', '').strip().upper()
+        if name and name.lower() != subject.name.lower():
+            if Subject.objects.exclude(pk=subject.pk).filter(name__iexact=name).exists():
+                return Response({'name': 'A course with this name already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+            subject.name = name
+        elif name:
+            subject.name = name
+        if code and code.lower() != subject.code.lower():
+            if Subject.objects.exclude(pk=subject.pk).filter(code__iexact=code).exists():
+                return Response({'code': 'A course with this code already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+            subject.code = code
+        elif code:
+            subject.code = code
+        if 'teacher' in request.data:
+            teacher_id = request.data.get('teacher')
+            if teacher_id:
+                subject.teacher = get_object_or_404(User, pk=teacher_id, role=User.Role.TEACHER)
+            else:
+                subject.teacher = None
+        subject.save()
+        return Response({
+            'id': subject.pk,
+            'name': subject.name,
+            'code': subject.code,
+            'teacher': subject.teacher_id,
+            'teacher_name': (subject.teacher.get_full_name() or subject.teacher.username) if subject.teacher else None,
+            'grades_count': subject.grades.count(),
+        })
+
+    def delete(self, request, subject_id):
+        subject = get_object_or_404(Subject, pk=subject_id)
+        subject.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminSessionsAPIView(APIView):
+    permission_classes = [IsAdminUserRole]
+
+    def get(self, request):
+        sessions = AcademicSession.objects.annotate(grades_count=Count('grades')).order_by('-session')
         return Response([
-            {'id': teacher.pk, 'name': teacher.get_full_name() or teacher.username, 'username': teacher.username,
-             'employee_id': getattr(getattr(teacher, 'teacher_profile', None), 'employee_id', None) or ''}
-            for teacher in teachers
+            {
+                'id': s.pk,
+                'session': s.session,
+                'is_current': s.is_current,
+                'grades_count': s.grades_count,
+            }
+            for s in sessions
         ])
+
+    def post(self, request):
+        session_name = request.data.get('session', '').strip()
+        is_current = bool(request.data.get('is_current', False))
+        if not session_name:
+            return Response({'session': 'Session name is required (e.g. 2024/2025).'}, status=status.HTTP_400_BAD_REQUEST)
+        if AcademicSession.objects.filter(session=session_name).exists():
+            return Response({'session': 'This academic session already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            if is_current:
+                AcademicSession.objects.filter(is_current=True).update(is_current=False)
+            acad_session = AcademicSession.objects.create(session=session_name, is_current=is_current)
+
+        return Response({
+            'id': acad_session.pk,
+            'session': acad_session.session,
+            'is_current': acad_session.is_current,
+            'grades_count': 0,
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminSessionDetailAPIView(APIView):
+    permission_classes = [IsAdminUserRole]
+
+    def patch(self, request, session_id):
+        acad_session = get_object_or_404(AcademicSession, pk=session_id)
+        session_name = request.data.get('session', '').strip()
+        if session_name and session_name != acad_session.session:
+            if AcademicSession.objects.exclude(pk=acad_session.pk).filter(session=session_name).exists():
+                return Response({'session': 'This academic session already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+            acad_session.session = session_name
+
+        if 'is_current' in request.data:
+            make_current = bool(request.data.get('is_current'))
+            with transaction.atomic():
+                if make_current:
+                    AcademicSession.objects.filter(is_current=True).exclude(pk=acad_session.pk).update(is_current=False)
+                    acad_session.is_current = True
+                else:
+                    acad_session.is_current = False
+                acad_session.save()
+        else:
+            acad_session.save()
+
+        return Response({
+            'id': acad_session.pk,
+            'session': acad_session.session,
+            'is_current': acad_session.is_current,
+            'grades_count': acad_session.grades.count(),
+        })
+
+    def delete(self, request, session_id):
+        acad_session = get_object_or_404(AcademicSession, pk=session_id)
+        if acad_session.grades.exists():
+            return Response({'error': 'Cannot delete an academic session with recorded grades.'}, status=status.HTTP_400_BAD_REQUEST)
+        acad_session.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminGradesAPIView(APIView):
+    permission_classes = [IsAdminUserRole]
+
+    def get(self, request):
+        queryset = Grade.objects.select_related('student__user', 'subject', 'session').order_by('-pk')
+        session_id = request.query_params.get('session')
+        subject_id = request.query_params.get('subject')
+        search = request.query_params.get('search')
+        if session_id:
+            queryset = queryset.filter(session_id=session_id)
+        if subject_id:
+            queryset = queryset.filter(subject_id=subject_id)
+        if search:
+            queryset = queryset.filter(
+                Q(student__user__first_name__icontains=search) |
+                Q(student__user__last_name__icontains=search) |
+                Q(student__user__username__icontains=search) |
+                Q(student__admission_number__icontains=search) |
+                Q(subject__name__icontains=search) |
+                Q(subject__code__icontains=search)
+            )
+        return Response(GradeSerializer(queryset, many=True).data)
+
+    def post(self, request):
+        serializer = GradeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        grade = serializer.save()
+        return Response(GradeSerializer(grade).data, status=status.HTTP_201_CREATED)
+
+
+class AdminGradeDetailAPIView(APIView):
+    permission_classes = [IsAdminUserRole]
+
+    def patch(self, request, grade_id):
+        grade = get_object_or_404(Grade, pk=grade_id)
+        serializer = GradeSerializer(grade, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(GradeSerializer(grade).data)
+
+    def delete(self, request, grade_id):
+        grade = get_object_or_404(Grade, pk=grade_id)
+        grade.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class TeacherSubjectsAPIView(APIView):
@@ -350,6 +663,7 @@ class StudentProfileAPIView(APIView):
             StudentProfile.objects.select_related('user', 'current_class'), user=request.user,
         )
         return Response(student_class_data(profile))
+
 
 
 

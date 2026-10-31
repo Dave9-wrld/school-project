@@ -1,4 +1,4 @@
-from decimal import Decimal
+﻿from decimal import Decimal
 
 from django.db import models
 from django.conf import settings
@@ -37,18 +37,19 @@ class Grade(models.Model):
   student = models.ForeignKey('accounts.StudentProfile', on_delete=models.CASCADE, related_name='grades')
   subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='grades')
   session = models.ForeignKey(AcademicSession, on_delete=models.CASCADE, related_name='grades')
-  continous_assessment_score = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0.00'), validators=[MinValueValidator(0), MaxValueValidator(40)])
+  continuous_assessment_score = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0.00'), validators=[MinValueValidator(0), MaxValueValidator(40)])
   exam_score = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0.00'), validators=[MinValueValidator(0), MaxValueValidator(60)])
 
   class Meta:
     unique_together = ('student', 'subject', 'session')
     constraints = [
-        models.CheckConstraint(condition=models.Q(continous_assessment_score__gte=0, continous_assessment_score__lte=40), name='grade_ca_between_0_and_40'),
+        models.CheckConstraint(condition=models.Q(continuous_assessment_score__gte=0, continuous_assessment_score__lte=40), name='grade_ca_between_0_and_40'),
         models.CheckConstraint(condition=models.Q(exam_score__gte=0, exam_score__lte=60), name='grade_exam_between_0_and_60'),
     ]
 
   def total_score(self):  
-    return self.continous_assessment_score + self.exam_score
+    return self.continuous_assessment_score + self.exam_score
 
   def __str__(self):
     return f"{self.student} - {self.subject}: {self.total_score()}"
+

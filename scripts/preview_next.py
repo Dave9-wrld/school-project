@@ -1,4 +1,4 @@
-"""Disposable browser QA server. Never reads or writes the real school database."""
+﻿"""Disposable browser QA server. Never reads or writes the real school database."""
 import os
 from pathlib import Path
 import sys
@@ -23,8 +23,8 @@ with tempfile.TemporaryDirectory(prefix='dave-next-qa-') as directory:
     password = 'PortalPreview!73'
     User.objects.create_user(username='qa_admin', password=password, first_name='Alex', last_name='Morgan', role='ADMIN')
     lecturer = User.objects.create_user(username='qa_lecturer', password=password, first_name='Ada', last_name='Okafor', role='TEACHER')
-    group = ClassRoom.objects.create(name='Year 1 — Sciences', class_teacher=lecturer)
-    ClassRoom.objects.create(name='Year 2 — Humanities')
+    group = ClassRoom.objects.create(name='Year 1 â€” Sciences', class_teacher=lecturer)
+    ClassRoom.objects.create(name='Year 2 â€” Humanities')
     session = AcademicSession.objects.create(session='2026/2027', is_current=True)
     courses = [Subject.objects.create(name=name, code=code, teacher=lecturer) for name, code in [('Applied Mathematics', 'MTH 101'), ('Scientific Thinking', 'SCI 102'), ('Academic Writing', 'ENG 103')]]
     for index, (first, last) in enumerate([('Amara', 'Okafor'), ('Bayo', 'Adeyemi'), ('Tomi', 'Bello'), ('Zara', 'Ibrahim')]):
@@ -34,9 +34,10 @@ with tempfile.TemporaryDirectory(prefix='dave-next-qa-') as directory:
         profile.admission_number = f'DU/26/00{index + 1}'
         profile.save()
         for number, course in enumerate(courses[:3 if index == 0 else 1]):
-            Grade.objects.create(student=profile, subject=course, session=session, continous_assessment_score=28 + number, exam_score=44 + index + number)
+            Grade.objects.create(student=profile, subject=course, session=session, continuous_assessment_score=28 + number, exam_score=44 + index + number)
     print('Disposable QA backend ready on http://127.0.0.1:8011', flush=True)
     try:
         call_command('runserver', '127.0.0.1:8011', use_reloader=False)
     finally:
         connections.close_all()
+

@@ -6,9 +6,9 @@ from academics.models import Grade
 class GradeEntryForm(forms.ModelForm):
     class Meta:
         model = Grade
-        fields = ['student', 'continous_assessment_score', 'exam_score']
+        fields = ['student', 'continuous_assessment_score', 'exam_score']
         labels = {
-            'continous_assessment_score': 'Continuous assessment (0–40)',
+            'continuous_assessment_score': 'Continuous assessment (0–40)',
             'exam_score': 'Exam score (0–60)',
         }
 

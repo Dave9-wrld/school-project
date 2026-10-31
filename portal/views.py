@@ -1,4 +1,4 @@
-from django.shortcuts import render, redirect, get_object_or_404
+﻿from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.views.decorators.http import require_http_methods
@@ -52,7 +52,7 @@ def record_grade(request, subject_id):
         Grade.objects.update_or_create(
             student=form.cleaned_data['student'], subject=subject, session=current_session,
             defaults={
-                'continous_assessment_score': form.cleaned_data['continous_assessment_score'],
+                'continuous_assessment_score': form.cleaned_data['continuous_assessment_score'],
                 'exam_score': form.cleaned_data['exam_score'],
             },
         )
@@ -77,3 +77,4 @@ def student_dashboard(request):
     }
 
     return render(request, 'student_dashboard.html', context)
+

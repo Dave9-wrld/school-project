@@ -99,10 +99,11 @@ class GradeSerializer(serializers.ModelSerializer):
     student_name = serializers.SerializerMethodField()
     subject_name = serializers.CharField(source='subject.name', read_only=True)
     session_name = serializers.CharField(source='session.session', read_only=True)
-    
+    total_score = serializers.SerializerMethodField()
+
     class Meta:
         model = Grade
-        fields = ['id', 'student', 'subject', 'student_name', 'subject_name', 'session', 'session_name', 'continous_assessment_score', 'exam_score', 'total_score']
+        fields = ['id', 'student', 'subject', 'student_name', 'subject_name', 'session', 'session_name', 'continuous_assessment_score', 'exam_score', 'total_score']
 
     def get_total_score(self, obj):
         return obj.total_score()
@@ -135,3 +136,4 @@ class StudentClassAssignmentSerializer(serializers.Serializer):
         queryset=ClassRoom.objects.all(),
         allow_null=True,
     )
+

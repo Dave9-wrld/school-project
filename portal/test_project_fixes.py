@@ -1,4 +1,4 @@
-from datetime import timedelta
+﻿from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -44,7 +44,7 @@ class ProjectFixTests(APITestCase):
 
     def test_dashboard_counts_subjects_and_results_render(self):
         Grade.objects.create(student=self.profile, subject=self.subject, session=self.session,
-                             continous_assessment_score=Decimal('30.00'), exam_score=Decimal('50.00'))
+                             continuous_assessment_score=Decimal('30.00'), exam_score=Decimal('50.00'))
         for user, route, expected in (
             (self.admin, 'admin_dashboard', 'School overview'),
             (self.teacher, 'teacher_dashboard', 'MATH'),
@@ -64,19 +64,19 @@ class ProjectFixTests(APITestCase):
     def test_grade_form_creates_and_updates_scores(self):
         self.client.force_login(self.teacher)
         self.assertContains(self.client.get(self.form_url), 'Save grade')
-        payload = {'student': self.profile.pk, 'continous_assessment_score': '30', 'exam_score': '50'}
+        payload = {'student': self.profile.pk, 'continuous_assessment_score': '30', 'exam_score': '50'}
         self.assertEqual(self.client.post(self.form_url, payload).status_code, 302)
-        payload['continous_assessment_score'] = '35'
+        payload['continuous_assessment_score'] = '35'
         self.assertEqual(self.client.post(self.form_url, payload).status_code, 302)
         self.assertEqual(Grade.objects.count(), 1)
         grade = Grade.objects.get()
-        self.assertEqual(grade.continous_assessment_score, 35)
+        self.assertEqual(grade.continuous_assessment_score, 35)
         self.assertEqual(grade.total_score(), 85)
 
     def test_grade_form_rejects_invalid_scores_and_student(self):
         self.client.force_login(self.teacher)
-        for changes in ({'exam_score': '61'}, {'continous_assessment_score': '-1'}, {'student': 999999}, {'exam_score': 'bad'}):
-            payload = {'student': self.profile.pk, 'continous_assessment_score': '30', 'exam_score': '50', **changes}
+        for changes in ({'exam_score': '61'}, {'continuous_assessment_score': '-1'}, {'student': 999999}, {'exam_score': 'bad'}):
+            payload = {'student': self.profile.pk, 'continuous_assessment_score': '30', 'exam_score': '50', **changes}
             with self.subTest(changes=changes):
                 self.assertEqual(self.client.post(self.form_url, payload).status_code, 400)
         self.assertFalse(Grade.objects.exists())
@@ -86,7 +86,7 @@ class ProjectFixTests(APITestCase):
         self.session.save()
         self.client.force_login(self.teacher)
         self.assertContains(self.client.get(self.form_url), 'No current academic session')
-        response = self.client.post(self.form_url, {'student': self.profile.pk, 'continous_assessment_score': '30', 'exam_score': '50'})
+        response = self.client.post(self.form_url, {'student': self.profile.pk, 'continuous_assessment_score': '30', 'exam_score': '50'})
         self.assertContains(response, 'No current academic session', status_code=400)
         self.assertFalse(Grade.objects.exists())
 
@@ -99,20 +99,20 @@ class ProjectFixTests(APITestCase):
 
     def test_api_score_limits_on_create_and_update(self):
         self.client.force_authenticate(self.teacher)
-        for field, value in (('continous_assessment_score', '-1'), ('continous_assessment_score', '40.01'),
+        for field, value in (('continuous_assessment_score', '-1'), ('continuous_assessment_score', '40.01'),
                              ('exam_score', '-1'), ('exam_score', '60.01')):
             with self.subTest(field=field, value=value):
                 response = self.client.post(self.grade_url, {'student': self.profile.pk, field: value})
                 self.assertEqual(response.status_code, 400)
                 self.assertIn(field, response.data)
         self.assertFalse(Grade.objects.exists())
-        self.assertEqual(self.client.post(self.grade_url, {'student': self.profile.pk, 'continous_assessment_score': '40', 'exam_score': '60'}).status_code, 201)
+        self.assertEqual(self.client.post(self.grade_url, {'student': self.profile.pk, 'continuous_assessment_score': '40', 'exam_score': '60'}).status_code, 201)
         self.assertEqual(self.client.post(self.grade_url, {'student': self.profile.pk, 'exam_score': '61'}).status_code, 400)
         self.assertEqual(Grade.objects.get().total_score(), 100)
-        self.assertEqual(self.client.post(self.grade_url, {'student': self.profile.pk, 'continous_assessment_score': '0', 'exam_score': '0'}).status_code, 200)
+        self.assertEqual(self.client.post(self.grade_url, {'student': self.profile.pk, 'continuous_assessment_score': '0', 'exam_score': '0'}).status_code, 200)
 
     def test_database_rejects_out_of_range_grades(self):
-        for values in ({'exam_score': 61}, {'exam_score': -1}, {'continous_assessment_score': 41}, {'continous_assessment_score': -1}):
+        for values in ({'exam_score': 61}, {'exam_score': -1}, {'continuous_assessment_score': 41}, {'continuous_assessment_score': -1}):
             with self.subTest(values=values):
                 with self.assertRaises(IntegrityError), transaction.atomic():
                     Grade.objects.create(student=self.profile, subject=self.subject, session=self.session, **values)
@@ -223,3 +223,4 @@ class ProjectFixTests(APITestCase):
             self.assertEqual(response.status_code, 429)
             self.assertIn('Retry-After', response)
             self.assertFalse(User.objects.filter(username='another').exists())
+

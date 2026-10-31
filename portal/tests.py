@@ -1,4 +1,4 @@
-from django.urls import reverse
+﻿from django.urls import reverse
 from django.core.cache import cache
 from rest_framework.test import APITestCase
 
@@ -67,7 +67,7 @@ class MigrationRecoveryAPITests(APITestCase):
         url = reverse('api_teacher_grades', args=[self.subject.pk])
         response = self.client.post(url, {
             'student': self.profile.pk,
-            'continous_assessment_score': '20.00',
+            'continuous_assessment_score': '20.00',
             'exam_score': '60.00',
         })
         self.assertEqual(response.status_code, 201, response.data)
@@ -98,9 +98,9 @@ class MigrationRecoveryAPITests(APITestCase):
         other_teacher = User.objects.create_user(username='other-teacher', role=User.Role.TEACHER)
         other_subject = Subject.objects.create(name='History', code='HIST', teacher=other_teacher)
         Grade.objects.create(student=self.profile, subject=self.subject, session=self.session,
-                             continous_assessment_score=20, exam_score=40)
+                             continuous_assessment_score=20, exam_score=40)
         Grade.objects.create(student=self.profile, subject=other_subject, session=self.session,
-                             continous_assessment_score=10, exam_score=30)
+                             continuous_assessment_score=10, exam_score=30)
 
         url = reverse('api_teacher_grades_list')
         self.assertEqual(self.client.get(url).status_code, 401)
@@ -239,3 +239,4 @@ class RegistrationAPITests(APITestCase):
             with self.assertRaises(RuntimeError):
                 self.client.post(reverse('api_register'), self.payload, format='json')
         self.assertFalse(User.objects.exists())
+
