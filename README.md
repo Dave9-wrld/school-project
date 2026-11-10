@@ -10,8 +10,14 @@ A full-stack institutional school portal engineered for universities, colleges, 
 
 ### Multi-Role RBAC (Role-Based Access Control)
 - **Students**: Enrolment records, profile information, real-time semester result cards, download official transcript records (CSV).
-- **Lecturers**: Course management, student assessment grading (40% continuous assessment + 60% exam), real-time grade computing, class group allocations.
-- **Administrators**: University stats dashboard, dynamic classroom creation & assignment, staff provisioning, and student class enrollment.
+- **Lecturers**: Course management, enrolled-student assessment grading (40% continuous assessment + 60% exam), attendance recording, and class group allocations.
+- **Administrators**: University stats dashboard, dynamic classroom creation and assignment, staff provisioning, course enrollment, and attendance oversight.
+
+### Course Enrollment & Attendance
+- A course enrollment links one student, one course, and one academic session.
+- Lecturers can open and close attendance sessions only for courses assigned to them.
+- Attendance records support present, absent, late, and excused states and prevent duplicate student records per lecture.
+- Existing grades are preserved. The enrollment migration derives registrations only from real grade relationships and does not invent historical data.
 
 ### Robust Backend & Security Architecture
 - **Expiring Token Authentication**: Secure token auth with configurable TTL (`API_TOKEN_TTL_SECONDS`) and auto-revocation upon logout/password changes.
@@ -96,7 +102,11 @@ The repository contains end-to-end integration tests covering:
 - Role restrictions & permission boundaries
 - OTP password recovery workflows & brute-force limits
 - Grade calculations and check constraints
+- Course enrollment role boundaries and data isolation
+- Attendance session ownership, duplicate prevention, and closed-session rules
 
 ```bash
 python manage.py test
 ```
+
+See `MILESTONE_1.md` for the implementation decisions and SIWES defense notes.

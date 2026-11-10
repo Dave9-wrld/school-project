@@ -13,7 +13,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
 from accounts.models import User, StudentProfile, TeacherProfile
-from academics.models import AcademicSession, Grade, Subject
+from academics.models import AcademicSession, CourseEnrollment, Grade, Subject
 from portal.throttles import LoginRateThrottle, RegistrationRateThrottle
 
 
@@ -28,6 +28,9 @@ class ProjectFixTests(APITestCase):
         self.session = AcademicSession.objects.create(session='2026/2027', is_current=True)
         self.subject = Subject.objects.create(name='Math', code='MATH', teacher=self.teacher)
         self.profile = self.student.student_profile
+        self.enrollment = CourseEnrollment.objects.create(
+            student=self.profile, subject=self.subject, session=self.session,
+        )
         self.grade_url = reverse('api_teacher_grades', args=[self.subject.pk])
         self.form_url = reverse('record_grade', args=[self.subject.pk])
 
@@ -149,6 +152,7 @@ class ProjectFixTests(APITestCase):
         from importlib import import_module
         from django.apps import apps
         from django.db import connection
+        CourseEnrollment.objects.filter(student=self.profile).delete()
         StudentProfile.objects.filter(user=self.student).delete()
         TeacherProfile.objects.filter(user=self.teacher).delete()
         backfill = import_module('accounts.migrations.0002_backfill_profiles').backfill_profiles

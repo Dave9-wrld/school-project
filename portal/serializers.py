@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from accounts.models import User, StudentProfile, TeacherProfile
-from academics.models import ClassRoom, Subject, Grade
+from academics.models import AcademicSession, AttendanceRecord, AttendanceSession, ClassRoom, CourseEnrollment, Subject, Grade
 
 
 class AccountCreateSerializer(serializers.ModelSerializer):
@@ -110,6 +110,134 @@ class GradeSerializer(serializers.ModelSerializer):
 
     def get_student_name(self, obj):
         return obj.student.user.get_full_name() or obj.student.user.username
+
+
+class CourseEnrollmentSerializer(serializers.ModelSerializer):
+    student_name = serializers.SerializerMethodField()
+    admission_number = serializers.CharField(source='student.admission_number', read_only=True)
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+    subject_code = serializers.CharField(source='subject.code', read_only=True)
+    session_name = serializers.CharField(source='session.session', read_only=True)
+    teacher_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CourseEnrollment
+        fields = [
+            'id', 'student', 'student_name', 'admission_number', 'subject', 'subject_name',
+            'subject_code', 'session', 'session_name', 'teacher_name', 'status',
+            'enrolled_on', 'ended_on', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+    def get_student_name(self, enrollment):
+        return enrollment.student.user.get_full_name() or enrollment.student.user.username
+
+    def get_teacher_name(self, enrollment):
+        teacher = enrollment.subject.teacher
+        return (teacher.get_full_name() or teacher.username) if teacher else None
+
+    def validate(self, attrs):
+        student = attrs.get('student', getattr(self.instance, 'student', None))
+        status_value = attrs.get('status', getattr(self.instance, 'status', CourseEnrollment.Status.ACTIVE))
+        enrolled_on = attrs.get('enrolled_on', getattr(self.instance, 'enrolled_on', None))
+        ended_on = attrs.get('ended_on', getattr(self.instance, 'ended_on', None))
+
+        if self.instance:
+            for field in ('student', 'subject', 'session'):
+                if field in attrs and attrs[field] != getattr(self.instance, field):
+                    raise serializers.ValidationError({field: 'Enrollment relationships cannot change after creation.'})
+        if student and (student.user.role != User.Role.STUDENT or not student.user.is_active):
+            raise serializers.ValidationError({'student': 'Course enrollment requires an active student account.'})
+        if enrolled_on and ended_on and ended_on < enrolled_on:
+            raise serializers.ValidationError({'ended_on': 'The end date cannot precede the enrollment date.'})
+        if status_value == CourseEnrollment.Status.ACTIVE and ended_on:
+            raise serializers.ValidationError({'ended_on': 'An active enrollment cannot have an end date.'})
+        return attrs
+
+
+class AttendanceSessionSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+    subject_code = serializers.CharField(source='subject.code', read_only=True)
+    session_name = serializers.CharField(source='academic_session.session', read_only=True)
+    teacher_name = serializers.SerializerMethodField()
+    record_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = AttendanceSession
+        fields = [
+            'id', 'subject', 'subject_name', 'subject_code', 'academic_session', 'session_name',
+            'teacher_name', 'date', 'starts_at', 'ends_at', 'status', 'record_count',
+            'created_by', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
+
+    def get_teacher_name(self, attendance_session):
+        teacher = attendance_session.subject.teacher
+        return (teacher.get_full_name() or teacher.username) if teacher else None
+
+    def validate(self, attrs):
+        subject = attrs.get('subject', getattr(self.instance, 'subject', None))
+        starts_at = attrs.get('starts_at', getattr(self.instance, 'starts_at', None))
+        ends_at = attrs.get('ends_at', getattr(self.instance, 'ends_at', None))
+        next_status = attrs.get('status', getattr(self.instance, 'status', AttendanceSession.Status.OPEN))
+        request = self.context.get('request')
+
+        if self.instance:
+            for field in ('subject', 'academic_session'):
+                if field in attrs and attrs[field] != getattr(self.instance, field):
+                    raise serializers.ValidationError({field: 'Attendance session relationships cannot change.'})
+            if self.instance.status == AttendanceSession.Status.CLOSED and next_status == AttendanceSession.Status.OPEN:
+                raise serializers.ValidationError({'status': 'A closed attendance session cannot be reopened.'})
+            if self.instance.records.exists():
+                for field in ('date', 'starts_at', 'ends_at'):
+                    if field in attrs and attrs[field] != getattr(self.instance, field):
+                        raise serializers.ValidationError({field: 'Session timing cannot change after attendance is recorded.'})
+        if request and request.user.is_teacher() and subject.teacher_id != request.user.pk:
+            raise serializers.ValidationError({'subject': 'You can only manage attendance for courses assigned to you.'})
+        if ends_at and starts_at and ends_at <= starts_at:
+            raise serializers.ValidationError({'ends_at': 'The end time must be later than the start time.'})
+        return attrs
+
+
+class AttendanceRecordSerializer(serializers.ModelSerializer):
+    student = serializers.IntegerField(source='course_enrollment.student_id', read_only=True)
+    student_name = serializers.SerializerMethodField()
+    admission_number = serializers.CharField(source='course_enrollment.student.admission_number', read_only=True)
+    subject_code = serializers.CharField(source='attendance_session.subject.code', read_only=True)
+    subject_name = serializers.CharField(source='attendance_session.subject.name', read_only=True)
+    session_date = serializers.DateField(source='attendance_session.date', read_only=True)
+
+    class Meta:
+        model = AttendanceRecord
+        fields = [
+            'id', 'attendance_session', 'course_enrollment', 'student', 'student_name',
+            'admission_number', 'subject_code', 'subject_name', 'session_date', 'status',
+            'notes', 'recorded_by', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'recorded_by', 'created_at', 'updated_at']
+
+    def get_student_name(self, record):
+        user = record.course_enrollment.student.user
+        return user.get_full_name() or user.username
+
+    def validate(self, attrs):
+        attendance_session = attrs.get('attendance_session', getattr(self.instance, 'attendance_session', None))
+        enrollment = attrs.get('course_enrollment', getattr(self.instance, 'course_enrollment', None))
+        request = self.context.get('request')
+
+        if self.instance:
+            for field in ('attendance_session', 'course_enrollment'):
+                if field in attrs and attrs[field] != getattr(self.instance, field):
+                    raise serializers.ValidationError({field: 'Attendance record relationships cannot change.'})
+        if attendance_session.status != AttendanceSession.Status.OPEN:
+            raise serializers.ValidationError({'attendance_session': 'Attendance can only change while the session is open.'})
+        if enrollment.status != CourseEnrollment.Status.ACTIVE:
+            raise serializers.ValidationError({'course_enrollment': 'Attendance requires an active course enrollment.'})
+        if enrollment.subject_id != attendance_session.subject_id or enrollment.session_id != attendance_session.academic_session_id:
+            raise serializers.ValidationError({'course_enrollment': 'The student is not enrolled in this course and academic session.'})
+        if request and request.user.is_teacher() and attendance_session.subject.teacher_id != request.user.pk:
+            raise serializers.ValidationError({'attendance_session': 'You can only manage attendance for courses assigned to you.'})
+        return attrs
 
 
 class AdminClassSerializer(serializers.ModelSerializer):

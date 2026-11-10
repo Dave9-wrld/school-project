@@ -39,5 +39,11 @@ urlpatterns = [
     path('api/teacher/grades/record/<int:subject_id>/', api_views.RecordGradeAPIView.as_view(), name='api_teacher_grades'),
     path('api/student/grades/', api_views.StudentGradesAPIView.as_view(), name='api_students_grade'),
     path('api/student/profile/', api_views.StudentProfileAPIView.as_view(), name='api_student_profile'),
+    path('api/course-enrollments/', api_views.CourseEnrollmentListCreateAPIView.as_view(), name='api_course_enrollments'),
+    path('api/course-enrollments/<int:enrollment_id>/', api_views.CourseEnrollmentDetailAPIView.as_view(), name='api_course_enrollment_detail'),
+    path('api/attendance-sessions/', api_views.AttendanceSessionListCreateAPIView.as_view(), name='api_attendance_sessions'),
+    path('api/attendance-sessions/<int:attendance_session_id>/', api_views.AttendanceSessionDetailAPIView.as_view(), name='api_attendance_session_detail'),
+    path('api/attendance-records/', api_views.AttendanceRecordListCreateAPIView.as_view(), name='api_attendance_records'),
+    path('api/attendance-records/<int:attendance_record_id>/', api_views.AttendanceRecordDetailAPIView.as_view(), name='api_attendance_record_detail'),
     
 ]

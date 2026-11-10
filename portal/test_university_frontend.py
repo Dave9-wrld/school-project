@@ -3,7 +3,7 @@ from django.urls import reverse
 from rest_framework.test import APITestCase
 
 from accounts.models import User
-from academics.models import Subject
+from academics.models import AcademicSession, CourseEnrollment, Subject
 
 
 class UniversityPortalTests(APITestCase):
@@ -12,6 +12,12 @@ class UniversityPortalTests(APITestCase):
         self.teacher = User.objects.create_user(username='lecturer', role=User.Role.TEACHER)
         self.student = User.objects.create_user(username='student', first_name='Ada', last_name='Okafor')
         self.subject = Subject.objects.create(name='Mathematics', code='MAT101', teacher=self.teacher)
+        self.session = AcademicSession.objects.create(session='2026/2027', is_current=True)
+        self.enrollment = CourseEnrollment.objects.create(
+            student=self.student.student_profile,
+            subject=self.subject,
+            session=self.session,
+        )
 
     def test_directory_requires_teacher_permission(self):
         url = reverse('api_teacher_students')

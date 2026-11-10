@@ -1,5 +1,5 @@
 from django.contrib.auth import logout
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -15,11 +15,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import StudentProfile, TeacherProfile, User
-from academics.models import AcademicSession, ClassRoom, Grade, Subject
-from .permissions import IsAdminUserRole, IsStudentUserRole, IsTeacherUserRole
+from academics.models import AcademicSession, AttendanceRecord, AttendanceSession, ClassRoom, CourseEnrollment, Grade, Subject
+from .permissions import AttendancePermission, CourseEnrollmentPermission, IsAdminUserRole, IsStudentUserRole, IsTeacherUserRole
 from .serializers import (
-    AccountCreateSerializer, UserSerializer, AdminClassSerializer, GradeSerializer, RegisterSerializer,
-    StudentClassAssignmentSerializer, SubjectSerializer,
+    AccountCreateSerializer, AttendanceRecordSerializer, AttendanceSessionSerializer,
+    CourseEnrollmentSerializer, UserSerializer, AdminClassSerializer, GradeSerializer,
+    RegisterSerializer, StudentClassAssignmentSerializer, SubjectSerializer,
 )
 from .authentication import token_expires_at
 from .throttles import LoginRateThrottle, RegistrationRateThrottle
@@ -63,6 +64,9 @@ class APIRootView(APIView):
             },
             'student_grades': {'method': 'GET', 'url': reverse('api_students_grade', request=request)},
             'student_profile': {'method': 'GET', 'url': reverse('api_student_profile', request=request)},
+            'course_enrollments': {'method': 'GET, POST (admin)', 'url': reverse('api_course_enrollments', request=request)},
+            'attendance_sessions': {'method': 'GET, POST (admin/teacher)', 'url': reverse('api_attendance_sessions', request=request)},
+            'attendance_records': {'method': 'GET, POST (admin/teacher)', 'url': reverse('api_attendance_records', request=request)},
         })
 
 
@@ -138,6 +142,152 @@ class LogoutAPIView(APIView):
         Token.objects.filter(user=request.user).delete()
         logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def scoped_course_enrollments(user):
+    queryset = CourseEnrollment.objects.select_related(
+        'student__user', 'subject__teacher', 'session',
+    )
+    if user.is_admin():
+        return queryset
+    if user.is_teacher():
+        return queryset.filter(subject__teacher=user)
+    return queryset.filter(student__user=user)
+
+
+def scoped_attendance_sessions(user):
+    queryset = AttendanceSession.objects.select_related(
+        'subject__teacher', 'academic_session', 'created_by',
+    ).annotate(record_count=Count('records'))
+    if user.is_admin():
+        return queryset
+    if user.is_teacher():
+        return queryset.filter(subject__teacher=user)
+    return queryset.filter(
+        subject__course_enrollments__student__user=user,
+        subject__course_enrollments__session=F('academic_session'),
+    ).distinct()
+
+
+def scoped_attendance_records(user):
+    queryset = AttendanceRecord.objects.select_related(
+        'attendance_session__subject', 'attendance_session__academic_session',
+        'course_enrollment__student__user', 'recorded_by',
+    )
+    if user.is_admin():
+        return queryset
+    if user.is_teacher():
+        return queryset.filter(attendance_session__subject__teacher=user)
+    return queryset.filter(course_enrollment__student__user=user)
+
+
+class CourseEnrollmentListCreateAPIView(APIView):
+    permission_classes = [CourseEnrollmentPermission]
+
+    def get(self, request):
+        queryset = scoped_course_enrollments(request.user)
+        for parameter, field in (
+            ('student', 'student_id'), ('subject', 'subject_id'), ('session', 'session_id'), ('status', 'status'),
+        ):
+            value = request.query_params.get(parameter)
+            if value:
+                queryset = queryset.filter(**{field: value})
+        return Response(CourseEnrollmentSerializer(queryset, many=True).data)
+
+    def post(self, request):
+        serializer = CourseEnrollmentSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class CourseEnrollmentDetailAPIView(APIView):
+    permission_classes = [CourseEnrollmentPermission]
+
+    def patch(self, request, enrollment_id):
+        enrollment = get_object_or_404(scoped_course_enrollments(request.user), pk=enrollment_id)
+        serializer = CourseEnrollmentSerializer(enrollment, data=request.data, partial=True, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class AttendanceSessionListCreateAPIView(APIView):
+    permission_classes = [AttendancePermission]
+
+    def get(self, request):
+        queryset = scoped_attendance_sessions(request.user)
+        for parameter, field in (
+            ('subject', 'subject_id'), ('academic_session', 'academic_session_id'), ('status', 'status'),
+        ):
+            value = request.query_params.get(parameter)
+            if value:
+                queryset = queryset.filter(**{field: value})
+        return Response(AttendanceSessionSerializer(queryset, many=True).data)
+
+    def post(self, request):
+        data = request.data.copy()
+        if not data.get('academic_session'):
+            current_session = AcademicSession.objects.filter(is_current=True).first()
+            if not current_session:
+                return Response(
+                    {'academic_session': 'No current academic session is configured.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            data['academic_session'] = current_session.pk
+        serializer = AttendanceSessionSerializer(data=data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        attendance_session = serializer.save(created_by=request.user)
+        attendance_session.record_count = 0
+        return Response(AttendanceSessionSerializer(attendance_session).data, status=status.HTTP_201_CREATED)
+
+
+class AttendanceSessionDetailAPIView(APIView):
+    permission_classes = [AttendancePermission]
+
+    def patch(self, request, attendance_session_id):
+        attendance_session = get_object_or_404(scoped_attendance_sessions(request.user), pk=attendance_session_id)
+        serializer = AttendanceSessionSerializer(
+            attendance_session, data=request.data, partial=True, context={'request': request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class AttendanceRecordListCreateAPIView(APIView):
+    permission_classes = [AttendancePermission]
+
+    def get(self, request):
+        queryset = scoped_attendance_records(request.user)
+        for parameter, field in (
+            ('attendance_session', 'attendance_session_id'),
+            ('course_enrollment', 'course_enrollment_id'),
+            ('status', 'status'),
+        ):
+            value = request.query_params.get(parameter)
+            if value:
+                queryset = queryset.filter(**{field: value})
+        return Response(AttendanceRecordSerializer(queryset, many=True).data)
+
+    def post(self, request):
+        serializer = AttendanceRecordSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save(recorded_by=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class AttendanceRecordDetailAPIView(APIView):
+    permission_classes = [AttendancePermission]
+
+    def patch(self, request, attendance_record_id):
+        attendance_record = get_object_or_404(scoped_attendance_records(request.user), pk=attendance_record_id)
+        serializer = AttendanceRecordSerializer(
+            attendance_record, data=request.data, partial=True, context={'request': request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save(recorded_by=request.user)
+        return Response(serializer.data)
 
 
 class AdminStatsAPIView(APIView):
@@ -274,6 +424,11 @@ class AdminStudentDetailAPIView(APIView):
 
     def delete(self, request, student_id):
         student = get_object_or_404(StudentProfile, pk=student_id)
+        if student.course_enrollments.exists():
+            return Response(
+                {'error': 'Cannot delete a student with course enrollment history. Deactivate the account instead.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         user = student.user
         user.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -417,6 +572,11 @@ class AdminSubjectDetailAPIView(APIView):
 
     def delete(self, request, subject_id):
         subject = get_object_or_404(Subject, pk=subject_id)
+        if subject.course_enrollments.exists() or subject.attendance_sessions.exists():
+            return Response(
+                {'error': 'Cannot delete a course with enrollment or attendance history.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         subject.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -489,8 +649,15 @@ class AdminSessionDetailAPIView(APIView):
 
     def delete(self, request, session_id):
         acad_session = get_object_or_404(AcademicSession, pk=session_id)
-        if acad_session.grades.exists():
-            return Response({'error': 'Cannot delete an academic session with recorded grades.'}, status=status.HTTP_400_BAD_REQUEST)
+        if (
+            acad_session.grades.exists()
+            or acad_session.course_enrollments.exists()
+            or acad_session.attendance_sessions.exists()
+        ):
+            return Response(
+                {'error': 'Cannot delete an academic session with grade, enrollment, or attendance history.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         acad_session.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -551,16 +718,19 @@ class TeacherSubjectsAPIView(APIView):
 
 
 class TeacherStudentsAPIView(APIView):
-    """Minimal student choices for lecturers who can record grades."""
+    """Active course-enrolled student choices for lecturers."""
 
     permission_classes = [IsTeacherUserRole]
 
     def get(self, request):
-        if not Subject.objects.filter(teacher=request.user).exists():
-            return Response([])
         students = StudentProfile.objects.filter(
-            user__role=User.Role.STUDENT, user__is_active=True,
+            user__role=User.Role.STUDENT,
+            user__is_active=True,
+            course_enrollments__subject__teacher=request.user,
+            course_enrollments__session__is_current=True,
+            course_enrollments__status=CourseEnrollment.Status.ACTIVE,
         ).select_related('user').order_by('user__first_name', 'user__last_name', 'user__username')
+        students = students.distinct()
         return Response([
             {
                 'id': student.pk,
@@ -622,6 +792,17 @@ class RecordGradeAPIView(APIView):
         except ValidationError as exc:
             raise ValidationError({'student': exc.detail}) from exc
 
+        if not CourseEnrollment.objects.filter(
+            student=student,
+            subject_id=subject_id,
+            session=current_session,
+            status=CourseEnrollment.Status.ACTIVE,
+        ).exists():
+            return Response(
+                {'student': 'This student is not actively enrolled in the course for the current session.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         existing_grade = Grade.objects.filter(
             student=student,
             subject_id=subject_id,
@@ -663,7 +844,3 @@ class StudentProfileAPIView(APIView):
             StudentProfile.objects.select_related('user', 'current_class'), user=request.user,
         )
         return Response(student_class_data(profile))
-
-
-
-

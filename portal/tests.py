@@ -3,7 +3,7 @@ from django.core.cache import cache
 from rest_framework.test import APITestCase
 
 from accounts.models import StudentProfile, User
-from academics.models import AcademicSession, Grade, Subject
+from academics.models import AcademicSession, CourseEnrollment, Grade, Subject
 
 
 class MigrationRecoveryAPITests(APITestCase):
@@ -14,11 +14,14 @@ class MigrationRecoveryAPITests(APITestCase):
         self.profile = self.student.student_profile
         self.session = AcademicSession.objects.create(session='2026/2027', is_current=True)
         self.subject = Subject.objects.create(name='Math', code='MATH', teacher=self.teacher)
+        self.enrollment = CourseEnrollment.objects.create(
+            student=self.profile, subject=self.subject, session=self.session,
+        )
 
     def test_api_index_is_public_and_does_not_redirect_logged_in_users(self):
         response = self.client.get('/api/')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 19)
+        self.assertEqual(len(response.data), 22)
         self.client.force_login(self.teacher)
         response = self.client.get('/api/', HTTP_ACCEPT='text/html')
         self.assertEqual(response.status_code, 200)
@@ -118,6 +121,7 @@ class MigrationRecoveryAPITests(APITestCase):
         self.assertEqual([grade['subject_name'] for grade in response.data], ['History'])
 
     def test_missing_student_profile_returns_404(self):
+        self.enrollment.delete()
         self.profile.delete()
         self.student.refresh_from_db()
         self.client.force_authenticate(self.student)
